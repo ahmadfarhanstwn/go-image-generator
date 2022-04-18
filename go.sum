@@ -1,0 +1,4 @@
+github.com/ahmadfarhanstwn/noise v0.0.0-20220415142742-de76a332a661 h1:Ydch2IdAryZf/Tp5WF9Ti+mrtRB6XAX6UylPsanq+D4=
+github.com/ahmadfarhanstwn/noise v0.0.0-20220415142742-de76a332a661/go.mod h1:vf7M+0dEOydvrbs2M728V/tq8z9XBtKdKNZwMv3zB80=
+github.com/veandco/go-sdl2 v0.4.20 h1:/xEP4SBAcGCo++wKv90mxDDRlVPjZ9HpES82FTd6qkg=
+github.com/veandco/go-sdl2 v0.4.20/go.mod h1:OROqMhHD43nT4/i9crJukyVecjPNYYuCofep6SNiAjY=
