@@ -27,6 +27,11 @@ type rgba struct {
 	r, g, b byte
 }
 
+type guiState struct {
+	zoom bool
+	zoomPicture *sdl.Texture
+}
+
 type picture struct {
 	r, g, b Node
 }
@@ -35,7 +40,7 @@ func (p *picture) String() string {
 	return "r:" + p.r.String() + ", g:" + p.g.String() + ", b:" + p.b.String()
 }
 
-func (p *picture) Mutate() {
+func (p *picture) mutate() {
 	r := rand.Intn(3)
 	var mutateNode Node
 	switch r {
@@ -58,6 +63,56 @@ func (p *picture) Mutate() {
 	} else if mutateNode == p.b {
 		p.b = mutation
 	}
+}
+
+func (p *picture) pickRandomColor() Node {
+	r := rand.Intn(3)
+	switch r {
+	case 0:
+		return p.r
+	case 1:
+		return p.g
+	case 2:
+		return p.b
+	default:
+		panic("random out of the bounds")
+	}
+}
+
+func cross(a, b *picture) *picture {
+	aCopy := &picture{CopyTree(a.r, nil), CopyTree(a.g, nil), CopyTree(a.b,nil)}
+	aColor := aCopy.pickRandomColor()
+	bColor := b.pickRandomColor()
+
+	aIndex := rand.Intn(aColor.CountNode())
+	aNode, _ := GetNthChildren(aColor, aIndex, 0)
+
+	bIndex := rand.Intn(bColor.CountNode())
+	bNode, _ := GetNthChildren(bColor, bIndex, 0)
+	bNodeCopy := CopyTree(bNode, bNode.GetParent())
+
+	ReplaceNode(aNode, bNodeCopy)
+	return aCopy
+}
+
+func evolve(survivor []*picture) []*picture {
+	newPics := make([]*picture, numPics)
+	i := 0
+	for i < len(survivor) {
+		a := survivor[i]
+		b := survivor[rand.Intn(len(survivor))]
+		newPics[i] = cross(a,b)
+		i++
+	}
+
+	for i < len(newPics) {
+		a := survivor[rand.Intn(len(survivor))]
+		b := survivor[rand.Intn(len(survivor))]
+		newPics[i] = cross(a,b)
+		i++
+	}
+
+	return newPics
 }
 
 func newPicture() *picture {
@@ -106,7 +161,6 @@ func setPixel(x, y int, c rgba, pixels []byte) {
 		pixels[index+1] = c.g
 		pixels[index+2] = c.b
 	}
-
 }
 
 func pixelsToTexture(renderer *sdl.Renderer, pixels []byte, w, h int) *sdl.Texture {
@@ -118,7 +172,7 @@ func pixelsToTexture(renderer *sdl.Renderer, pixels []byte, w, h int) *sdl.Textu
 	return tex
 }
 
-func AptToPixels (p *picture, w, h int, renderer *sdl.Renderer) []byte {
+func aptToPixels (p *picture, w, h int) []byte {
 	scale := float32(255/2)
 	offset := float32(-1.0*scale)
 	pixels := make([]byte, w*h*4)
@@ -244,14 +298,20 @@ func main() {
 	}
 
 	picWidth := int(float32(winWidth/columns)*float32(.9))
-	picHeight := int(float32(winHeight/rows)*float32(.9))
+	picHeight := int(float32(winHeight/rows)*float32(.8))
 
 	buttons:= make([]*ImageButton, numPics)
 	textureChan := make(chan pixelsTexture, numPics)
 
+	evolveButtonTex := GetSinglePicText(renderer, sdl.Color{255,255,255,0})
+	evolveButtonRect := sdl.Rect{int32(float32(winWidth/2)-float32(picWidth/2)), int32(float32(winHeight)-float32(winHeight)*.1),int32(picWidth),int32(float32(winHeight)*.08)}
+	evolveButton := NewImageButton(renderer, evolveButtonTex, evolveButtonRect, sdl.Color{255,255,255,0})
+
+	zoomState := guiState{false, nil}
+
 	for i := range buttons {
 		go func(i int) {
-			texturePix := AptToPixels(picturesTree[i],picWidth,picHeight,renderer)
+			texturePix := aptToPixels(picturesTree[i],picWidth*2,picHeight*2)
 			textureChan <- pixelsTexture{texturePix, i}
 		}(i)
 	}
@@ -283,35 +343,70 @@ func main() {
 			return
 		}
 
-		select {
-		case texAndIdx, ok := <- textureChan:
-			if ok {
-				tex := pixelsToTexture(renderer, texAndIdx.pixels, picWidth, picHeight)
-				xi := texAndIdx.num % columns
-				yi := (texAndIdx.num-xi)/rows
-				x := int32(xi*picWidth)
-				y := int32(yi*picHeight)
-				xPad := int32(float32(winWidth)*.1/float32(columns+1))
-				yPad := int32(float32(winHeight)*.1/float32(rows+1))
-				x += xPad*(int32(xi)+1)
-				y += yPad*(int32(yi)+1)
-				rect := sdl.Rect{x,y,int32(picWidth),int32(picHeight)}
-				button := NewImageButton(renderer, tex, rect, sdl.Color{255,255,255,0})
-				buttons[texAndIdx.num] = button
-			}
-		default:
-
-		}
-
-		renderer.Clear()
-		for _, button := range buttons {
-			if button != nil {
-				button.Update(currentMouseState)
-				if button.WasLeftClicked {
-					button.IsSelected = !button.IsSelected
+		if !zoomState.zoom {
+			select {
+			case texAndIdx, ok := <- textureChan:
+				if ok {
+					tex := pixelsToTexture(renderer, texAndIdx.pixels, picWidth*2, picHeight*2)
+					xi := texAndIdx.num % columns
+					yi := (texAndIdx.num-xi)/rows
+					x := int32(xi*picWidth)
+					y := int32(yi*picHeight)
+					xPad := int32(float32(winWidth)*.1/float32(columns+1))
+					yPad := int32(float32(winHeight)*.1/float32(rows+1))
+					x += xPad*(int32(xi)+1)
+					y += yPad*(int32(yi)+1)
+					rect := sdl.Rect{x,y,int32(picWidth),int32(picHeight)}
+					button := NewImageButton(renderer, tex, rect, sdl.Color{255,255,255,0})
+					buttons[texAndIdx.num] = button
 				}
-				button.Draw(renderer)
+			default:
+
 			}
+
+			renderer.Clear()
+			for i, button := range buttons {
+				if button != nil {
+					button.Update(currentMouseState)
+					if button.WasLeftClicked {
+						button.IsSelected = !button.IsSelected
+					} else if button.WasRightClicked {
+						zoomPixels := aptToPixels(picturesTree[i], winWidth*2, winHeight*2)
+						zoomTex := pixelsToTexture(renderer, zoomPixels, winWidth*2, winHeight*2)
+						zoomState.zoom = true
+						zoomState.zoomPicture = zoomTex
+					}
+					button.Draw(renderer)
+				}
+			}
+
+			evolveButton.Update(currentMouseState)
+			if evolveButton.WasLeftClicked {
+				selectedPicture := make([]*picture,0)
+				for i, button := range buttons {
+					if button.IsSelected {
+						selectedPicture = append(selectedPicture, picturesTree[i])
+					}
+				}
+				if len(selectedPicture) != 0 {
+					for i := range buttons {
+						buttons[i] = nil
+					}
+					picturesTree = evolve(selectedPicture)
+					for i := range picturesTree {
+						go func(j int) {
+							pixels := aptToPixels(picturesTree[j], picWidth*2, picHeight*2)
+							textureChan <- pixelsTexture{pixels, j}
+						}(i)
+					}	
+				}
+			}
+			evolveButton.Draw(renderer)
+		} else {
+			if !currentMouseState.RightButton && currentMouseState.PrevRightButton {
+				zoomState.zoom = false
+			}
+			renderer.Copy(zoomState.zoomPicture, nil,nil)
 		}
 		renderer.Present()
 		elapsedTime = float32(time.Since(frameStart).Seconds() * 1000)

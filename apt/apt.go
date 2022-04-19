@@ -3,6 +3,7 @@ package apt
 import (
 	"math"
 	"math/rand"
+	"reflect"
 	"strconv"
 
 	"github.com/ahmadfarhanstwn/noise"
@@ -12,6 +13,7 @@ type Node interface {
 	Eval(x, y float32) float32
 	String() string
 	SetParent(node Node)
+	SetChildren(children []Node)
 	AddRandom(node Node)
 	AddLeaf(nodeLeaf Node) bool
 	CountNode() int
@@ -22,6 +24,30 @@ type Node interface {
 type BaseNode struct {
 	Parent Node
 	Children []Node
+}
+
+func CopyTree(node, parent Node) Node {
+	copy := reflect.New(reflect.ValueOf(node).Elem().Type()).Interface().(Node)
+	copy.SetParent(parent)
+	copyChildren := make([]Node, len(node.GetChildren()))
+	copy.SetChildren(copyChildren)
+	for i := range copyChildren {
+		copyChildren[i] = CopyTree(node.GetChildren()[i], copy)
+	}
+	return copy
+}
+
+func ReplaceNode(old, new Node) {
+	oldParent := old.GetParent()
+	if oldParent != nil {
+		for i, child := range oldParent.GetChildren(){
+			if child == old {
+				oldParent.GetChildren()[i] = new
+				break
+			}
+		}
+	}
+	new.SetParent(oldParent)
 }
 
 func GetNthChildren(node Node, n, count int) (Node, int) {
@@ -94,6 +120,10 @@ func (base *BaseNode) String() string {
 
 func (base *BaseNode) SetParent(parent Node) {
 	base.Parent = parent
+}
+
+func (base *BaseNode) SetChildren(children []Node) {
+	base.Children = children
 }
 
 func (base *BaseNode) AddRandom(node Node) {
