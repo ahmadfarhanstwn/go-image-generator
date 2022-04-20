@@ -2,7 +2,11 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"math/rand"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	. "github.com/ahmadfarhanstwn/evolving-pictures/apt"
@@ -29,6 +33,7 @@ type rgba struct {
 
 type guiState struct {
 	zoom bool
+	zoomTree *picture
 	zoomPicture *sdl.Texture
 }
 
@@ -37,7 +42,36 @@ type picture struct {
 }
 
 func (p *picture) String() string {
-	return "r:" + p.r.String() + ", g:" + p.g.String() + ", b:" + p.b.String()
+	return "( picture\n" + p.r.String() + "\n" + p.g.String() + "\n" + p.b.String() + ")"
+}
+
+func saveTree(p *picture) {
+	files, err := ioutil.ReadDir("./")
+	if err != nil {
+		panic(err)
+	}
+
+	maksNumber := 0
+	for _, file := range files {
+		fileName := file.Name()
+		if strings.HasSuffix(fileName, ".apt") {
+			newString := strings.TrimSuffix(fileName, ".apt")
+			num, err := strconv.Atoi(newString)
+			if err == nil {
+				if maksNumber <= num {
+					maksNumber = num+1
+				}
+			}
+		}
+	}
+
+	savedFile := strconv.Itoa(maksNumber) + ".apt"
+	file, err := os.Create(savedFile)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	fmt.Fprintf(file, p.String())
 }
 
 func (p *picture) mutate() {
@@ -172,7 +206,7 @@ func pixelsToTexture(renderer *sdl.Renderer, pixels []byte, w, h int) *sdl.Textu
 	return tex
 }
 
-func aptToPixels (p *picture, w, h int) []byte {
+func aptToPixels(p *picture, w, h int) []byte {
 	scale := float32(255/2)
 	offset := float32(-1.0*scale)
 	pixels := make([]byte, w*h*4)
@@ -194,6 +228,39 @@ func aptToPixels (p *picture, w, h int) []byte {
 		}
 	}
 	return pixels
+}
+
+func pixelsToTextureChan(renderer *sdl.Renderer, pixels []byte, w, h int, textureChan chan *sdl.Texture) {
+	tex, err := renderer.CreateTexture(sdl.PIXELFORMAT_ABGR8888, sdl.TEXTUREACCESS_STREAMING, int32(w), int32(h))
+	if err != nil {
+		panic(err)
+	}
+	tex.Update(nil, pixels, w*4)
+	textureChan <- tex
+}
+
+func aptToPixelsChan(p *picture, w, h int, pixelChan chan []byte) {
+	scale := float32(255/2)
+	offset := float32(-1.0*scale)
+	pixels := make([]byte, w*h*4)
+	pixelIndex := 0
+	for yi := 0; yi < h; yi++ {
+		y := float32(yi)/float32(h)*2-1
+		for xi := 0; xi < w; xi++ {
+			x := float32(xi)/float32(w)*2-1
+			c := p.r.Eval(x,y)
+			c2 := p.g.Eval(x,y)
+			c3 := p.b.Eval(x,y)
+			pixels[pixelIndex] = byte(c*scale-offset)
+			pixelIndex++
+			pixels[pixelIndex] = byte(c2*scale-offset)
+			pixelIndex++
+			pixels[pixelIndex] = byte(c3*scale-offset)
+			pixelIndex++
+			pixelIndex++
+		}
+	}
+	pixelChan <- pixels
 }
 
 func lerp(b1 byte, b2 byte, pct float32) byte {
@@ -259,7 +326,7 @@ func main() {
 	}
 	defer sdl.Quit()
 
-	window, err := sdl.CreateWindow("Evolving Pictures", 200, 200,
+	window, err := sdl.CreateWindow("Evolving Pictures", 100, 100,
 		int32(winWidth), int32(winHeight), sdl.WINDOW_SHOWN)
 	if err != nil {
 		fmt.Println(err)
@@ -284,11 +351,15 @@ func main() {
 	// audioState := audioState{explosionBytes, audioID, audioSpec}
 
 	sdl.SetHint(sdl.HINT_RENDER_SCALE_QUALITY, "1")
-
 	var elapsedTime float32
 	currentMouseState := GetMouseState()
 	
 	keyboardState := sdl.GetKeyboardState()
+	prevKeyboardState := make([]uint8, len(keyboardState))
+
+	for i, v := range keyboardState {
+		prevKeyboardState[i] = v
+	}
 
 	rand.Seed(time.Now().UnixNano())
 
@@ -307,7 +378,24 @@ func main() {
 	evolveButtonRect := sdl.Rect{int32(float32(winWidth/2)-float32(picWidth/2)), int32(float32(winHeight)-float32(winHeight)*.1),int32(picWidth),int32(float32(winHeight)*.08)}
 	evolveButton := NewImageButton(renderer, evolveButtonTex, evolveButtonRect, sdl.Color{255,255,255,0})
 
-	zoomState := guiState{false, nil}
+	zoomState := guiState{false, nil, nil}
+
+	args := os.Args
+	if len(args) > 1 {
+		fileBytes, err := ioutil.ReadFile(args[1])
+		if err != nil {
+			panic(err)
+		}
+		fileStr := string(fileBytes)
+		pictureNode := BeginLexing(fileStr)
+		p := &picture{pictureNode.GetChildren()[0], pictureNode.GetChildren()[1], pictureNode.GetChildren()[2]}
+		pixels := aptToPixels(p, winWidth*2, winHeight*2)
+		tex := pixelsToTexture(renderer, pixels, winWidth*2, winHeight*2)
+		zoomState.zoom = true
+		zoomState.zoomPicture = tex
+		zoomState.zoomTree = p
+	}
+
 
 	for i := range buttons {
 		go func(i int) {
@@ -371,10 +459,15 @@ func main() {
 					if button.WasLeftClicked {
 						button.IsSelected = !button.IsSelected
 					} else if button.WasRightClicked {
-						zoomPixels := aptToPixels(picturesTree[i], winWidth*2, winHeight*2)
-						zoomTex := pixelsToTexture(renderer, zoomPixels, winWidth*2, winHeight*2)
+						timeStart := time.Now()
+						texChan := make(chan *sdl.Texture, 10)
+						pixelChan := make(chan []byte, 10)
+						go aptToPixelsChan(picturesTree[i], winWidth*2, winHeight*2, pixelChan)
+						go pixelsToTextureChan(renderer, <-pixelChan, winWidth*2, winHeight*2, texChan)
 						zoomState.zoom = true
-						zoomState.zoomPicture = zoomTex
+						zoomState.zoomTree = picturesTree[i]
+						zoomState.zoomPicture = <-texChan
+						fmt.Println(time.Since(timeStart).Seconds())
 					}
 					button.Draw(renderer)
 				}
@@ -406,9 +499,15 @@ func main() {
 			if !currentMouseState.RightButton && currentMouseState.PrevRightButton {
 				zoomState.zoom = false
 			}
+			if keyboardState[sdl.SCANCODE_S] == 0 && prevKeyboardState[sdl.SCANCODE_S] != 0 {
+				saveTree(zoomState.zoomTree)
+			}
 			renderer.Copy(zoomState.zoomPicture, nil,nil)
 		}
 		renderer.Present()
+		for i, v := range keyboardState {
+			prevKeyboardState[i] = v
+		}
 		elapsedTime = float32(time.Since(frameStart).Seconds() * 1000)
 		//	fmt.Println("ms per frame:", elapsedTime)
 		if elapsedTime < 5 {

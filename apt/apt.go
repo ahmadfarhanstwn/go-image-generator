@@ -28,6 +28,10 @@ type BaseNode struct {
 
 func CopyTree(node, parent Node) Node {
 	copy := reflect.New(reflect.ValueOf(node).Elem().Type()).Interface().(Node)
+	switch n := node.(type) {
+	case *OpConst:
+		copy.(*OpConst).value = n.value
+	}
 	copy.SetParent(parent)
 	copyChildren := make([]Node, len(node.GetChildren()))
 	copy.SetChildren(copyChildren)
@@ -170,7 +174,7 @@ func (op *OpPlus) Eval(x, y float32) float32 {
 }
 
 func (op *OpPlus) String() string {
-	return op.Children[0].String() + " + " + op.Children[1].String()
+	return "( + " + op.Children[0].String() + " " + op.Children[1].String() + " )"
 }
 
 type OpMinus struct {
@@ -186,7 +190,7 @@ func (op *OpMinus) Eval(x, y float32) float32 {
 }
 
 func (op *OpMinus) String() string {
-	return op.Children[0].String() + " - " + op.Children[1].String()
+	return "( - " + op.Children[0].String() + " " + op.Children[1].String() + " )"
 }
 
 type OpMultiplies struct {
@@ -202,7 +206,7 @@ func (op *OpMultiplies) Eval(x, y float32) float32 {
 }
 
 func (op *OpMultiplies) String() string {
-	return op.Children[0].String() + " * " + op.Children[1].String()
+	return "( * " + op.Children[0].String() + " " + op.Children[1].String() + " )"
 }
 
 type OpDivide struct {
@@ -218,7 +222,7 @@ func (op *OpDivide) Eval(x, y float32) float32 {
 }
 
 func (op *OpDivide) String() string {
-	return op.Children[0].String() + " / " + op.Children[1].String()
+	return "( / " + op.Children[0].String() + " " + op.Children[1].String() + " )"
 }
 
 type OpAtan2 struct {
@@ -234,7 +238,7 @@ func (op *OpAtan2) Eval(x, y float32) float32 {
 }
 
 func (op *OpAtan2) String() string {
-	return "atan2(" + op.Children[0].String() + " " + op.Children[1].String() + ")"
+	return "( atan2 " + op.Children[0].String() + " " + op.Children[1].String() + " )"
 }
 
 type OpSin struct {
@@ -250,7 +254,7 @@ func (op *OpSin) Eval(x, y float32) float32 {
 }
 
 func (op *OpSin) String() string {
-	return "sin(" + op.Children[0].String() + ")"
+	return "( sin " + op.Children[0].String() + " )"
 }
 
 type OpCos struct {
@@ -266,7 +270,7 @@ func (op *OpCos) Eval(x, y float32) float32 {
 }
 
 func (op *OpCos) String() string {
-	return "cos(" + op.Children[0].String() + ")"
+	return "( cos " + op.Children[0].String() + " )"
 }
 
 type OpAtan struct {
@@ -282,7 +286,7 @@ func (op *OpAtan) Eval(x, y float32) float32 {
 }
 
 func (op *OpAtan) String() string {
-	return "atan(" + op.Children[0].String() + ")"
+	return "( atan " + op.Children[0].String() + " )"
 }
 
 type opNoise struct {
@@ -298,7 +302,7 @@ func (op *opNoise) Eval(x, y float32) float32 {
 }
 
 func (op *opNoise) String() string {
-	return "snoise2(" + op.Children[0].String() + ", " + op.Children[1].String() + ")"
+	return "( snoise2 " + op.Children[0].String() + " " + op.Children[1].String() + " )"
 }
 
 type OpSquare struct {
@@ -315,7 +319,7 @@ func (opsquare *OpSquare) Eval(x, y float32) float32 {
 }
 
 func (opsquare *OpSquare) String() string {
-	return "square(" + opsquare.Children[0].String() + ")"
+	return "( square " + opsquare.Children[0].String() + " )"
 }
 
 type OpNegate struct {
@@ -331,7 +335,7 @@ func (opnegate *OpNegate) Eval(x, y float32) float32 {
 }
 
 func (opnegate *OpNegate) String() string {
-	return "negate(" + opnegate.Children[0].String() + ")"
+	return "( negate " + opnegate.Children[0].String() + " )"
 }
 
 type OpCeil struct {
@@ -347,7 +351,7 @@ func (opceil *OpCeil) Eval(x, y float32) float32 {
 }
 
 func (opceil *OpCeil) String() string {
-	return "ceil(" + opceil.Children[0].String() + ")"
+	return "( ceil " + opceil.Children[0].String() + " )"
 }
 
 type OpFloor struct {
@@ -363,7 +367,7 @@ func (opfloor *OpFloor) Eval(x, y float32) float32 {
 }
 
 func (opfloor *OpFloor) String() string {
-	return "floor(" + opfloor.Children[0].String() + ")"
+	return "( floor " + opfloor.Children[0].String() + " )"
 }
 
 type OpAbs struct {
@@ -379,7 +383,7 @@ func (opabs *OpAbs) Eval(x, y float32) float32 {
 }
 
 func (opabs *OpAbs) String() string {
-	return "abs(" + opabs.Children[0].String() + ")"
+	return "( abs " + opabs.Children[0].String() + " )"
 }
 
 type OpFbm struct {
@@ -391,11 +395,11 @@ func NewOpFbm() *OpFbm {
 }
 
 func (opfbm *OpFbm) Eval(x, y float32) float32 {
-	return 3.628*2*noise.Fbm2(opfbm.Children[0].Eval(x,y), opfbm.Children[1].Eval(x,y), opfbm.Children[2].Eval(x,y)*5,0.5,2,3) + .492-1
+	return noise.Fbm2(opfbm.Children[0].Eval(x,y), opfbm.Children[1].Eval(x,y), opfbm.Children[2].Eval(x,y), 0.5, 2, 3)
 }
 
 func (opfbm *OpFbm) String() string {
-	return "fbm(" + opfbm.Children[0].String() + "," + opfbm.Children[1].String() + "," + opfbm.Children[2].String() + ")"
+	return "( fbm " + opfbm.Children[0].String() + " " + opfbm.Children[1].String() + " " + opfbm.Children[2].String() + " )"
 }
 
 type OpTurbulence struct {
@@ -407,11 +411,11 @@ func NewTurbulence() *OpFbm {
 }
 
 func (opturbulence *OpTurbulence) Eval(x, y float32) float32 {
-	return 2.69*2*noise.Turbulence(opturbulence.Children[0].Eval(x,y), opturbulence.Children[1].Eval(x,y), opturbulence.Children[2].Eval(x,y)*5,0.5,2,3) -1
+	return noise.Turbulence(opturbulence.Children[0].Eval(x,y), opturbulence.Children[1].Eval(x,y), opturbulence.Children[2].Eval(x,y), 0.5, 2, 3)
 }
 
 func (opturbulence *OpTurbulence) String() string {
-	return "turbulence(" + opturbulence.Children[0].String() + "," + opturbulence.Children[1].String() + "," + opturbulence.Children[2].String() + ")"
+	return "( turbulence " + opturbulence.Children[0].String() + " " + opturbulence.Children[1].String() + " " + opturbulence.Children[2].String() + " )"
 }
 
 type OpX struct {
@@ -461,6 +465,22 @@ func (opconst *OpConst) Eval(x, y float32) float32 {
 
 func (opconst *OpConst) String() string {
 	return strconv.FormatFloat(float64(opconst.value),'f',9,32)
+}
+
+type OpPict struct {
+	BaseNode
+}
+
+func NewOpPict() *OpPict {
+	return &OpPict{BaseNode{nil, make([]Node, 3)}}
+}
+
+func (oppict *OpPict) Eval(x, y float32) float32 {
+	panic("tried to eval root of pict")
+}
+
+func (oppict *OpPict) String() string {
+	return "( picture\n" + oppict.Children[0].String() + "\n" + oppict.Children[1].String() + "\n" + oppict.Children[2].String() + " )"
 }
 
 func GetRandomNodeOpt() Node {
